@@ -16,36 +16,34 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-          cache-dependency-path: patch/pom.xml
+          cache-dependency-path: guard/pom.xml
 
-      - name: Verify required files
+      - name: Verify files
         run: |
-          echo "Checking project files..."
+          echo "Repository contents:"
+          find . -maxdepth 3 -type f | sort
 
-          if [ ! -f "baseline/MagicSMP.jar" ]; then
+          test -f baseline/MagicSMP.jar || {
             echo "ERROR: baseline/MagicSMP.jar is missing"
             exit 1
-          fi
+          }
 
-          if [ ! -f "patch/pom.xml" ]; then
-            echo "ERROR: patch/pom.xml is missing"
+          test -f guard/pom.xml || {
+            echo "ERROR: guard/pom.xml is missing"
             exit 1
-          fi
+          }
 
-          if [ ! -f "build.sh" ]; then
+          test -f build.sh || {
             echo "ERROR: build.sh is missing"
             exit 1
-          fi
+          }
 
-          echo "Required files found."
-          ls -lh baseline/MagicSMP.jar
-
-      - name: Install current MagicSMP dependency
+      - name: Install MagicSMP dependency
         run: |
           mvn install:install-file \
             -Dfile=baseline/MagicSMP.jar \
@@ -55,23 +53,22 @@ jobs:
             -Dpackaging=jar \
             -DgeneratePom=true
 
-      - name: Build Sell Pages Patch
-        working-directory: patch
+      - name: Build Sell Pages Fix
+        working-directory: guard
         run: mvn -B clean package
 
-      - name: Build final MagicSMP JAR
+      - name: Build final MagicSMP
         run: |
           chmod +x build.sh
           ./build.sh
 
       - name: Verify final JAR
         run: |
-          if [ ! -f "build/MagicSMP.jar" ]; then
-            echo "ERROR: build/MagicSMP.jar was not created"
+          test -f build/MagicSMP.jar || {
+            echo "ERROR: Final MagicSMP.jar wasn't created"
             exit 1
-          fi
+          }
 
-          echo "MagicSMP.jar successfully created:"
           ls -lh build/MagicSMP.jar
 
       - name: Upload MagicSMP
@@ -80,4 +77,3 @@ jobs:
           name: MagicSMP-SellPages-Fix
           path: build/MagicSMP.jar
           if-no-files-found: error
-          retention-days: 30
