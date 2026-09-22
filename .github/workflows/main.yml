@@ -1,0 +1,83 @@
+name: Build MagicSMP Sell Pages Fix
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: patch/pom.xml
+
+      - name: Verify required files
+        run: |
+          echo "Checking project files..."
+
+          if [ ! -f "baseline/MagicSMP.jar" ]; then
+            echo "ERROR: baseline/MagicSMP.jar is missing"
+            exit 1
+          fi
+
+          if [ ! -f "patch/pom.xml" ]; then
+            echo "ERROR: patch/pom.xml is missing"
+            exit 1
+          fi
+
+          if [ ! -f "build.sh" ]; then
+            echo "ERROR: build.sh is missing"
+            exit 1
+          fi
+
+          echo "Required files found."
+          ls -lh baseline/MagicSMP.jar
+
+      - name: Install current MagicSMP dependency
+        run: |
+          mvn install:install-file \
+            -Dfile=baseline/MagicSMP.jar \
+            -DgroupId=com.bx \
+            -DartifactId=magicsmp-current \
+            -Dversion=1.0 \
+            -Dpackaging=jar \
+            -DgeneratePom=true
+
+      - name: Build Sell Pages Patch
+        working-directory: patch
+        run: mvn -B clean package
+
+      - name: Build final MagicSMP JAR
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Verify final JAR
+        run: |
+          if [ ! -f "build/MagicSMP.jar" ]; then
+            echo "ERROR: build/MagicSMP.jar was not created"
+            exit 1
+          fi
+
+          echo "MagicSMP.jar successfully created:"
+          ls -lh build/MagicSMP.jar
+
+      - name: Upload MagicSMP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MagicSMP-SellPages-Fix
+          path: build/MagicSMP.jar
+          if-no-files-found: error
+          retention-days: 30
