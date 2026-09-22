@@ -20,33 +20,52 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
-          cache-dependency-path: guard/pom.xml
 
-      - name: Verify files
+      - name: Show repository files
         run: |
-          echo "Repository contents:"
-          find . -maxdepth 3 -type f | sort
+          echo "=== Repository files ==="
+          find . -maxdepth 6 -type f | sort
 
-          test -f baseline/MagicSMP.jar || {
-            echo "ERROR: baseline/MagicSMP.jar is missing"
-            exit 1
-          }
+      - name: Find Maven project
+        id: maven
+        shell: bash
+        run: |
+          POM=$(find . -type f -name "pom.xml" | head -n 1)
 
-          test -f guard/pom.xml || {
-            echo "ERROR: guard/pom.xml is missing"
+          if [ -z "$POM" ]; then
+            echo "ERROR: No pom.xml exists anywhere in the repository."
             exit 1
-          }
+          fi
 
-          test -f build.sh || {
-            echo "ERROR: build.sh is missing"
+          PROJECT_DIR=$(dirname "$POM")
+
+          echo "Found pom.xml: $POM"
+          echo "Maven project directory: $PROJECT_DIR"
+
+          echo "pom=$POM" >> "$GITHUB_OUTPUT"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Find baseline MagicSMP JAR
+        id: baseline
+        shell: bash
+        run: |
+          JAR=$(find . -type f -iname "MagicSMP*.jar" \
+            ! -path "*/target/*" \
+            ! -path "*/build/*" \
+            | head -n 1)
+
+          if [ -z "$JAR" ]; then
+            echo "ERROR: Could not find the baseline MagicSMP JAR."
             exit 1
-          }
+          fi
+
+          echo "Found baseline JAR: $JAR"
+          echo "jar=$JAR" >> "$GITHUB_OUTPUT"
 
       - name: Install MagicSMP dependency
         run: |
           mvn install:install-file \
-            -Dfile=baseline/MagicSMP.jar \
+            -Dfile="${{ steps.baseline.outputs.jar }}" \
             -DgroupId=com.bx \
             -DartifactId=magicsmp-current \
             -Dversion=1.0 \
@@ -54,26 +73,59 @@ jobs:
             -DgeneratePom=true
 
       - name: Build Sell Pages Fix
-        working-directory: guard
+        working-directory: ${{ steps.maven.outputs.project_dir }}
         run: mvn -B clean package
 
-      - name: Build final MagicSMP
+      - name: Run MagicSMP patcher
+        shell: bash
         run: |
-          chmod +x build.sh
-          ./build.sh
+          if [ -f "build.sh" ]; then
+            chmod +x build.sh
+            ./build.sh
+          else
+            BUILD_SCRIPT=$(find . -type f -name "build.sh" | head -n 1)
 
-      - name: Verify final JAR
+            if [ -z "$BUILD_SCRIPT" ]; then
+              echo "ERROR: build.sh could not be found."
+              exit 1
+            fi
+
+            chmod +x "$BUILD_SCRIPT"
+
+            SCRIPT_DIR=$(dirname "$BUILD_SCRIPT")
+            SCRIPT_NAME=$(basename "$BUILD_SCRIPT")
+
+            cd "$SCRIPT_DIR"
+            "./$SCRIPT_NAME"
+          fi
+
+      - name: Find final MagicSMP JAR
+        id: final
+        shell: bash
         run: |
-          test -f build/MagicSMP.jar || {
-            echo "ERROR: Final MagicSMP.jar wasn't created"
+          if [ -f "build/MagicSMP.jar" ]; then
+            FINAL_JAR="build/MagicSMP.jar"
+          else
+            FINAL_JAR=$(find . -type f -path "*/build/MagicSMP.jar" | head -n 1)
+          fi
+
+          if [ -z "$FINAL_JAR" ] || [ ! -f "$FINAL_JAR" ]; then
+            echo "ERROR: Final patched MagicSMP.jar was not created."
+            echo ""
+            echo "JAR files that do exist:"
+            find . -type f -name "*.jar" -print
             exit 1
-          }
+          fi
 
-          ls -lh build/MagicSMP.jar
+          echo "Final JAR: $FINAL_JAR"
+          ls -lh "$FINAL_JAR"
+
+          echo "jar=$FINAL_JAR" >> "$GITHUB_OUTPUT"
 
       - name: Upload MagicSMP
         uses: actions/upload-artifact@v4
         with:
           name: MagicSMP-SellPages-Fix
-          path: build/MagicSMP.jar
+          path: ${{ steps.final.outputs.jar }}
           if-no-files-found: error
+          retention-days: 30
